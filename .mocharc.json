@@ -1,0 +1,8 @@
+{
+	"recursive": true,
+	"retries": 0,
+	"exit": true,
+	"timeout": 15000,
+	"require": ["tsx", "test-hooks.ts"],
+	"spec": "src/**/*.test.ts"
+}

@@ -1,0 +1,35 @@
+name: Update License Year
+
+on:
+  schedule:
+    - cron: '0 0 1 1 *'  # Run at midnight on January 1st
+  workflow_dispatch:  # Allow manual trigger
+  
+jobs:
+  update-license-year:
+    runs-on: ubuntu-latest
+    permissions:
+      # Give the default GITHUB_TOKEN write permission to commit and push the
+      # added or changed files to the repository.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set current year
+        run: echo "CURRENT_YEAR=$(date +%Y)" >> $GITHUB_ENV
+
+      - name: Update copyright year
+        run: sed -i -e "s/copyright (c) [0-9]\{4\}/Copyright (c) $CURRENT_YEAR/I" -e "s/copyright [0-9]\{4\}/Copyright $CURRENT_YEAR/I" LICENSE
+  
+        # Commit all changed files back to the repository
+      - name: Commit Updated License
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          body: "Automated update of copyright year in LICENSE file"
+          commit_options: '--no-verify'
+          file_pattern: 'LICENSE'
+          commit_message: "Update copyright year to ${{ env.CURRENT_YEAR }}"
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
