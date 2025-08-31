@@ -1,7 +1,7 @@
 {
   "name": "inquirer-interactive-text",
   "version": "0.1.0",
-  "description": "",
+  "description": "A framework for building interactive text interfaces with navigable fields and inline editing for CLI applications",
   "main": "./dist/commonjs/index.js",
   "types": "./dist/commonjs/index.d.ts",
   "files": [
@@ -77,9 +77,20 @@
   },
   "module": "./dist/esm/index.js",
   "keywords": [
-    ""
+    "inquirer",
+    "interactive",
+    "text",
+    "cli",
+    "prompt",
+    "terminal",
+    "navigation",
+    "form",
+    "framework"
   ],
   "dependencies": {
-    "@inquirer/core": "^10.2.0"
+    "@inquirer/core": "^10.2.0",
+    "@inquirer/figures": "^1.0.13",
+    "ansi-escapes": "^7.0.0",
+    "yoctocolors": "^2.1.2"
   }
 }
