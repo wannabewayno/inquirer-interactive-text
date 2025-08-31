@@ -78,5 +78,8 @@
   "module": "./dist/esm/index.js",
   "keywords": [
     ""
-  ]
+  ],
+  "dependencies": {
+    "@inquirer/core": "^10.2.0"
+  }
 }
