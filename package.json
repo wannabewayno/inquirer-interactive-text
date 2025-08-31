@@ -1,6 +1,6 @@
 {
   "name": "inquirer-interactive-text",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A framework for building interactive text interfaces with navigable fields and inline editing for CLI applications",
   "main": "./dist/commonjs/index.js",
   "types": "./dist/commonjs/index.d.ts",
