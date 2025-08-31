@@ -1,7 +1,7 @@
 {
-  "name": "{{PACKAGE_NAME}}",
+  "name": "inquirer-interactive-text",
   "version": "0.1.0",
-  "description": "{{PACKAGE_DESCRIPTION}}",
+  "description": "",
   "main": "./dist/commonjs/index.js",
   "types": "./dist/commonjs/index.d.ts",
   "files": [
@@ -9,14 +9,14 @@
   ],
   "type": "module",
   "author": {
-    "name": "{{AUTHOR_NAME}}",
-    "email": "{{AUTHOR_EMAIL}}"
+    "name": "wayne griffiths",
+    "email": "wayne.c.griffiths@gmail.com"
   },
   "license": "MIT",
-  "homepage": "{{REPO_URL}}",
+  "homepage": "https://github.com/wannabewayno/inquirer-interactive-text#readme",
   "repository": {
     "type": "git",
-    "url": "{{REPO_URL}}"
+    "url": "git+https://github.com/wannabewayno/inquirer-interactive-text.git"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.4",
@@ -45,8 +45,7 @@
     "check": "tsc --noEmit --skipLibCheck",
     "test": "npx mocha test",
     "test:parallel": "npx mocha test --parallel",
-    "build": "tshy",
-    "template:setup": "node setup/setup.cjs"
+    "build": "tshy"
   },
   "tshy": {
     "exclude": [
@@ -76,5 +75,8 @@
       }
     }
   },
-  "module": "./dist/esm/index.js"
+  "module": "./dist/esm/index.js",
+  "keywords": [
+    ""
+  ]
 }
