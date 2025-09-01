@@ -269,7 +269,12 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
       const transformedValue = transformer ? transformer(rl.line) : rl.line;
 
       const error = validator ? validator(transformedValue) : null;
-      if (!error) Reflect.deleteProperty(errors, id ?? '');
+      if (!error) {
+        const { [id ?? '']: _, ...otherErrors } = errors;
+        setErrors(otherErrors);
+      } else {
+        setErrors({ ...errors, [id ?? '']: error });
+      }
 
       setEditValue(transformedValue);
     } else {
@@ -316,7 +321,14 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
 
   const rendered = renderer(displayState, editMode, Object.keys(errors), currentField?.id);
 
-  const text = `${actionString}\n\n${rendered}`;
+  const errorString = useMemo(() => {
+    const errorMessage = Object.entries(errors)
+      .reduce((msg, [field, err]) => msg.concat(`- [${field}] ${err}`), [] as string[])
+      .join('\n');
+    return errorMessage !== '' ? `\n\n${red(errorMessage)}` : errorMessage;
+  }, [errors]);
+
+  const text = `${actionString}\n\n${rendered}${errorString}`;
 
   if (editMode) return text;
   return `${text}${cursorHide}`;
