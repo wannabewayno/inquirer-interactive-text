@@ -1,8 +1,8 @@
-import { createPrompt, KeypressEvent, type Theme, useKeypress, useMemo, useState } from '@inquirer/core';
-import type { PartialDeep } from '@inquirer/type';
-import { cursorHide } from 'ansi-escapes';
 import { appendFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createPrompt, type KeypressEvent, type Theme, useEffect, useKeypress, useMemo, useState } from '@inquirer/core';
+import type { PartialDeep } from '@inquirer/type';
+import { cursorHide } from 'ansi-escapes';
 import {
   black,
   blue,
@@ -54,14 +54,14 @@ export interface Position {
   col: number;
 }
 
-export type CustomAction = (hooks: StateManipulations) => void | Promise<void>;
+export type CustomAction = (hooks: Controls) => void | Promise<void>;
 
 export interface EditActionConfig {
   scope: 'edit';
   name: string;
   key: string;
   displayKey?: string;
-  action: ((hooks: StateManipulations) => void) | 'save' | 'cancel'
+  action: ((hooks: Controls) => void) | 'save' | 'cancel';
   label?: string;
 }
 
@@ -70,11 +70,11 @@ export interface NavigateActionConfig {
   name: string;
   key: string;
   displayKey?: string;
-  action: ((hooks: StateManipulations) => void) | 'done' | 'remove' | 'edit'
+  action: ((hooks: Controls) => void) | 'done' | 'remove' | 'edit';
   label?: string;
 }
 
-export type ActionConfig = NavigateActionConfig | EditActionConfig
+export type ActionConfig = NavigateActionConfig | EditActionConfig;
 
 export type Style = keyof typeof styles;
 export type StyleConfig = Style | Style[] | ((value: string) => string);
@@ -96,7 +96,7 @@ export interface InteractiveTextConfig<T = State> {
   fields: FieldGrid;
   renderer: Renderer<T>;
   initialValues?: Partial<T>;
-  actions?: (ActionConfig)[];
+  actions?: ActionConfig[];
   theme?: PartialDeep<Theme>;
 }
 
@@ -128,8 +128,6 @@ function validateFields(state: State, fields: FieldGrid): null | Record<string, 
 
   return Object.keys(errors).length ? errors : null;
 }
-
-const toActionString = (action: ActionConfig) => `(${action.displayKey}) ${action.label}`;
 
 type Direction = 'up' | 'down' | 'left' | 'right';
 function navigatePosition(fieldGrid: FieldGrid, current: Position, direction: Direction): Position {
@@ -165,74 +163,131 @@ function navigatePosition(fieldGrid: FieldGrid, current: Position, direction: Di
   }
 }
 
-export type KeyPressEvent = KeypressEvent & { shift: boolean, meta: boolean }
+function validate(currentLine: string, { setErrors, setEditValue, errors, currentField }: Controls) {
+  const { transformer, validator, id } = currentField ?? {};
+  const transformedValue = transformer ? transformer(currentLine) : currentLine;
 
-class Action {
-  keyCombination: string;
-  constructor(public readonly scope: 'edit' | 'navigate', public readonly name: string, public readonly action: CustomAction, key: string, public readonly label?: string) {
-    this.keyCombination = key.replace(/\s/g, '').toLowerCase().replace(/enter/, 'return');
-    if (!label) this.label = `(${this.keyCombination.split('+').map(v => v.replace(/^\w/,v => v.toUpperCase())).join('+').replace(/Return/, 'Enter')})`;
+  const error = validator ? validator(transformedValue) : null;
+  if (!error) {
+    const { [id ?? '']: _, ...otherErrors } = errors;
+    setErrors(otherErrors);
+  } else {
+    setErrors({ ...errors, [id ?? '']: error });
   }
 
-  private isTriggered(key: KeyPressEvent) {
+  setEditValue(transformedValue);
+}
+
+export type KeyPressEvent = KeypressEvent & { shift: boolean; meta: boolean };
+
+const actionMap: Record<Extract<ActionConfig['action'], string>, CustomAction> = {
+  edit: ({ currentField, setEditMode, setEditValue, state }) => {
+    if (!currentField) return;
+    setEditMode(true);
+    setEditValue(state[currentField.id] || '');
+    // rl.write(state[currentField.id] || '');
+  },
+  remove: ({ currentField, setState, state }) => {
+    if (!currentField) return;
+    const { [currentField.id]: _, ...values } = state;
+    setState({ ...values });
+  },
+  done: ({ setErrors, done, errors }) => {
+    // const errors = validateFields(state, config.fields);
+    if (!errors) return done();
+    setErrors(errors);
+  },
+  cancel: ({ setEditMode, setEditValue }) => {
+    // Cancel edit mode and wipe current edit value
+    setEditMode(false);
+    setEditValue('');
+  },
+  save: ({ errors, currentField, setEditMode, setEditValue, editValue, state, setState }) => {
+    // Don't allow saving if there's no field or errors on the current field.
+    if (!currentField || errors[currentField.id]) return;
+    setState({ ...state, [currentField.id]: editValue });
+    setEditMode(false);
+    setEditValue('');
+  },
+};
+
+class Action {
+  readonly label: string;
+  readonly action: CustomAction;
+  readonly keyCombination: string;
+
+  constructor(
+    public readonly scope: 'edit' | 'navigate',
+    public readonly name: string,
+    action: Extract<ActionConfig['action'], string> | CustomAction,
+    key: string,
+    label?: string,
+  ) {
+    this.keyCombination = key.replace(/\s/g, '').toLowerCase().replace(/enter/, 'return');
+
+    this.label =
+      label ??
+      `(${this.keyCombination
+        .split('+')
+        .map(v => v.replace(/^\w/, v => v.toUpperCase()))
+        .join('+')
+        .replace(/Return/, 'Enter')})`;
+
+    this.action = typeof action === 'string' ? actionMap[action] : action;
+  }
+
+  isTriggered(key: KeyPressEvent) {
     const keys = [key.name.toLowerCase()];
     if (key.ctrl) keys.unshift('ctrl');
     if (key.shift) keys.unshift('shift');
-    if (key.meta)  keys.unshift('alt');
+    if (key.meta) keys.unshift('alt');
 
     return this.keyCombination === keys.join('+');
   }
 
   toString() {
-    return `${this.name} ${this.label}`
+    return `${this.name} ${this.label}`;
   }
 
-  trigger(key: KeyPressEvent, controls: Controls) {
-    if (!this.isTriggered(key)) return;
-    // give the action the thing.
+  trigger(controls: Controls) {
     return this.action(controls);
   }
 }
 
 interface Controls {
-  setErrors: (currentErrors: Record<string, string>) => Record<string, string>;
-  setEditMode: (currentEditMode: boolean) => boolean;
-  setEditValue: (currentValue: string) => string;
-  setPosition: (currentPosition: { row: 0, column: 0 }) =>  { row: 0, column: 0 };
-  setFocus: (currentFocus: string) => string;
-  getFocus: (currentFocus: string) => string;
-  setState: (currentState: Record<string, string>) => Record<string, string>;
-
+  state: State;
+  setState: (newState: Record<string, string>) => void;
+  errors: Record<string, string>;
+  setErrors: (newErrors: Record<string, string>) => void;
+  editMode: boolean;
+  setEditMode: (newEditMode: boolean) => void;
+  editValue: string;
+  setEditValue: (newValue: string) => void;
+  position: Position;
+  setPosition: (newPosition: Position) => void;
+  currentField?: Field;
+  setCurrentField: (id: string) => void;
+  done: () => void;
 }
 
 function log(...text: string[]) {
-  appendFile(path.resolve('./log.txt'), text.join('\n'))
+  appendFile(path.resolve('./log.txt'), text.join('\n'));
 }
 
-  const editAction: ActionConfig = { key: 'enter', action: () => {}, name: 'Edit', scope: 'navigate' };
-  const removeAction: ActionConfig = { key: 'delete', action: () => {}, name: 'Remove', label: '(Del)', scope: 'navigate' };
-  const doneAction: ActionConfig = { key: 'alt+enter', action: () => {}, name: 'Done', scope: 'navigate' };
-  const cancelAction: ActionConfig = { key: 'escape', action: () => {}, name: 'Cancel', label: '(Esc)', scope: 'edit' };
-  const saveAction: ActionConfig = { key: 'enter', action: () => {}, name: 'Save', scope: 'edit' };
-
-function parseActions(actions?: ActionConfig[]): { editActions: Action[]; navigationActions: Action[] } {
-  if (!actions) actions = [];
-
-  const defaultEditAction: ActionConfig = { key: 'enter', action: () => {}, name: 'Edit', scope: 'navigate' };
-  const defaultRemoveAction: ActionConfig = { key: 'delete', action: () => {}, name: 'Remove', label: '(Del)', scope: 'navigate' };
-  const defaultDoneAction: ActionConfig = { key: 'alt+enter', action: () => {}, name: 'Done', scope: 'navigate' };
-  const defaultCancelAction: ActionConfig = { key: 'escape', action: () => {}, name: 'Cancel', label: '(Esc)', scope: 'edit' };
-  const defaultSaveAction: ActionConfig = { key: 'enter', action: () => {}, name: 'Save', scope: 'edit' };
+function parseActions(actionConfigs: ActionConfig[] = []): { editActions: Action[]; navigationActions: Action[] } {
+  const actions = actionConfigs.map(({ scope, name, action, key, label }) => new Action(scope, name, action, key, label));
 
   // Go through users actions and ensure we have all the required actions in there, otherwise add in the defaults
-  if (!actions.find(a => a.action === 'save')) actions.push(defaultSaveAction);
-  if (!actions.find(a => a.action === 'edit')) actions.push(defaultEditAction);
-  if (!actions.find(a => a.action === 'remove')) actions.push(defaultRemoveAction);
-  if (!actions.find(a => a.action === 'cancel')) actions.push(defaultCancelAction);
-  if (!actions.find(a => a.action === 'done')) actions.push(defaultDoneAction);
+  if (!actionConfigs.some(a => a.action === 'done')) actions.push(new Action('navigate', 'Done', 'done', 'alt+enter'));
+  if (!actionConfigs.some(a => a.action === 'edit')) actions.push(new Action('navigate', 'Edit', 'edit', 'enter'));
+  if (!actionConfigs.some(a => a.action === 'remove'))
+    actions.push(new Action('navigate', 'Remove', 'remove', 'delete', '(Del)'));
+  if (!actionConfigs.some(a => a.action === 'cancel'))
+    actions.push(new Action('edit', 'Cancel', 'cancel', 'escape', '(Esc)'));
+  if (!actionConfigs.some(a => a.action === 'save')) actions.push(new Action('edit', 'Save', 'save', 'enter'));
 
-  const editActions: Action[] = actions.filter(({ scope }) => scope === 'edit').map(({ scope, name, action, key, label }) => new Action(scope, name, action, key, label));
-  const navigationActions: Action[] = actions.filter(({ scope }) => scope === 'navigate').map(({ scope, name, action, key, label }) => new Action(scope, name, action, key, label));
+  const editActions: Action[] = actions.filter(({ scope }) => scope === 'edit');
+  const navigationActions: Action[] = actions.filter(({ scope }) => scope === 'navigate');
 
   return { editActions, navigationActions };
 }
@@ -255,12 +310,12 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
     ============ CONFIGURATION PARSING ====================
   */
   const { editActions, navigationActions } = useMemo(() => {
-    log('[parseActions] useMemo')
-    return parseActions(config.actions)
+    log('[parseActions] useMemo');
+    return parseActions(config.actions);
   }, [config.actions]);
 
   const fields = useMemo(() => {
-    log('[fields] useMemo')
+    log('[fields] useMemo');
     return Object.fromEntries(
       config.fields.flat().map(field => {
         // Set defaults whilst we're here
@@ -273,7 +328,7 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
 
   // Setup the renderer
   const renderer = useMemo(() => {
-    log('[renderer] useMemo')
+    log('[renderer] useMemo');
     if (typeof config.renderer === 'function') return config.renderer;
 
     const { template, editingStyle, selectedStyle, errorStyle } = config.renderer;
@@ -320,81 +375,8 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
   }, [config.fields, position]);
 
   /*
-    ============ Logic Layer ====================
+    ============ Caching Layer ====================
   */
-
-  useKeypress((key, rl) => {
-    if (editMode) {
-      const action = editActions.find(action => action.key === key.name);
-
-      if (action) {
-        switch (action.action) {
-          case 'cancel':
-            setEditMode(false);
-            setEditValue('');
-            break;
-          case 'save':
-            if (currentField) setValues({ ...values, [currentField.id]: editValue });
-            setEditMode(false);
-            setEditValue('');
-            break;
-        }
-      }
-
-      const { transformer, validator, id } = currentField ?? {};
-      const transformedValue = transformer ? transformer(rl.line) : rl.line;
-
-      const error = validator ? validator(transformedValue) : null;
-      if (!error) {
-        const { [id ?? '']: _, ...otherErrors } = errors;
-        setErrors(otherErrors);
-      } else {
-        setErrors({ ...errors, [id ?? '']: error });
-      }
-
-      setEditValue(transformedValue);
-    } else {
-      if (['up', 'down', 'left', 'right'].includes(key.name)) {
-        return setPosition(navigatePosition(config.fields, position, key.name as Direction));
-      }
-
-      const action = navigationActions.find(action => action.key === key.name);
-
-      if (action) {
-        switch (action.action) {
-          case 'edit':
-            if (currentField) {
-              setEditMode(true);
-              setEditValue(values[currentField.id] || '');
-              rl.clearLine(-1);
-              rl.write(values[currentField.id] || '');
-            }
-            break;
-          case 'remove':
-            if (currentField) setValues({ ...values, [currentField.id]: '' });
-            break;
-          case 'done': {
-            const errors = validateFields(values, config.fields);
-            if (!errors) return done(values);
-            setErrors(errors);
-            break;
-          }
-        }
-      }
-    }
-  });
-
-  /*
-    ============ Rendering Layer ====================
-  */
-
-  const displayState = editMode && currentField ? { ...values, [currentField.id]: editValue } : values;
-
-  const actionString = useMemo(() => {
-    return editMode ? editActions.map(toActionString).join(' | ') : navigationActions.map(toActionString).join(' | ');
-  }, [editMode, editActions, navigationActions]);
-
-  const rendered = renderer(displayState, editMode, Object.keys(errors), currentField?.id);
 
   const errorString = useMemo(() => {
     const errorMessage = Object.entries(errors)
@@ -402,6 +384,74 @@ export default createPrompt<State, InteractiveTextConfig>((config, done) => {
       .join('\n');
     return errorMessage !== '' ? `\n\n${red(errorMessage)}` : errorMessage;
   }, [errors]);
+
+  const actionString = useMemo(() => {
+    return editMode ? editActions.map(v => v.toString()).join(' | ') : navigationActions.map(v => v.toString()).join(' | ');
+  }, [editMode, editActions, navigationActions]);
+
+  /*
+    ============ Logic Layer ====================
+  */
+  const controls = {
+    state: values,
+    setState: setValues,
+    errors,
+    setErrors,
+    editMode,
+    setEditMode,
+    editValue,
+    setEditValue,
+    position,
+    setPosition,
+    currentField,
+    setCurrentField: (id: string) => {
+      let rowIndex = 0;
+      let columnIndex = 0;
+
+      for (const row of config.fields) {
+        columnIndex = row.findIndex(field => field.id === id);
+        if (columnIndex > -1) break;
+        rowIndex++;
+      }
+
+      setPosition({ row: rowIndex, col: columnIndex });
+    },
+    done: () => done(values),
+  };
+
+  useKeypress((key, rl) => {
+    if (editMode) {
+      const action = editActions.find(action => action.isTriggered(key as KeyPressEvent));
+
+      if (action) action.trigger(controls);
+
+      validate(rl.line, controls);
+    } else {
+      // These should be actions also.
+      if (['up', 'down', 'left', 'right'].includes(key.name)) {
+        return setPosition(navigatePosition(config.fields, position, key.name as Direction));
+      }
+
+      const action = navigationActions.find(action => action.isTriggered(key as KeyPressEvent));
+
+      if (action) action.trigger(controls);
+    }
+  });
+
+  // Clear the line ready for input when the edit mode changes
+  useEffect(
+    rl => {
+      rl.clearLine(0);
+    },
+    [editMode],
+  );
+
+  /*
+    ============ Rendering Layer ====================
+  */
+  const displayState = editMode && currentField ? { ...values, [currentField.id]: editValue } : values;
+
+  const rendered = renderer(displayState, editMode, Object.keys(errors), currentField?.id);
 
   const text = `${actionString}\n\n${rendered}${errorString}`;
 
