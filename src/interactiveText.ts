@@ -108,26 +108,26 @@ function getFieldAtPosition(fieldGrid: FieldGrid, position: Position): Field | u
   return fieldGrid[position.row]?.[position.col];
 }
 
-function validateFields(state: State, fields: FieldGrid): null | Record<string, string> {
-  const errors = getFlatFields(fields).reduce(
-    (errors, { id, validator, required }) => {
-      const value = state[id];
-      if (value) {
-        if (validator) {
-          const error = validator(value);
-          if (error) errors[id] = error;
-        }
-      } else if (required) {
-        errors[id] = `${id} is required`;
-      }
+// function validateFields(state: State, fields: FieldGrid): null | Record<string, string> {
+//   const errors = getFlatFields(fields).reduce(
+//     (errors, { id, validator, required }) => {
+//       const value = state[id];
+//       if (value) {
+//         if (validator) {
+//           const error = validator(value);
+//           if (error) errors[id] = error;
+//         }
+//       } else if (required) {
+//         errors[id] = `${id} is required`;
+//       }
 
-      return errors;
-    },
-    {} as Record<string, string>,
-  );
+//       return errors;
+//     },
+//     {} as Record<string, string>,
+//   );
 
-  return Object.keys(errors).length ? errors : null;
-}
+//   return Object.keys(errors).length ? errors : null;
+// }
 
 type Direction = 'up' | 'down' | 'left' | 'right';
 function navigatePosition(fieldGrid: FieldGrid, current: Position, direction: Direction): Position {
